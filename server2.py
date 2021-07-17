@@ -7,11 +7,7 @@ import re
 import glob
 import subprocess
 import select
-import cmd
-import rlcompleter
-import atexit
 import random
-import shlex
 import tqdm
 import stat
 import humanize
@@ -33,6 +29,80 @@ class server():
 			self.serversocket.listen(5)
 		except socket.error as e:
 			print("Error: Connection `!!")
+
+	def get_hash(self,f):
+		hash_function = hashlib.md5()
+		with open(f, "rb") as file:
+			for chunk in iter(lambda: file.read(HASH_BUFFER_SIZE), b""):
+				hash_function.update(chunk)
+		return hash_function.hexdigest()
+
+	def get_file_info(self,file_list):
+		# Declare a resultant string to store final output of all the files that were modified in this time interval
+		result_string = []
+		# Extracting required information: filename, filesize, last modified time string, type of file using awk
+		for f in file_list:
+			if f == '':
+				break
+
+			bash_command = subprocess.check_output(['ls -l '+f+' | awk \'{print  $9, $5, $6, $7, $8}\' '], shell=True).decode("utf-8")
+			'''
+			Eg outputs:
+				1.	b'./main.py 1720 Jul 17 04:15\n'
+				2.	b'./b.txt 13 Jul 17 04:15\n'
+				3.	b'./a.txt 0 Jul 17 04:15\n'
+			'''
+
+			# removing the trailing newline character
+			if decoded_bash_command[-1] == '\n':
+				decoded_bash_command = decoded_bash_command[:-1]
+			split_command = re.split(" ", decoded_bash_command)
+			#Note: uncomment below code block for getting only filenames
+			'''temp_command = split_command[0].split("/")
+			split_command[0] = temp_command[-1]'''
+
+			result_string+=split_command[:2]
+			result_string.append(" ".join(str(x) for x in split_command[2:]))
+
+			#file types
+			p = subprocess.Popen('file '+f, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+			res, errors = p.communicate()
+			'''
+			eg output:
+				1. b'./main.py: Python script, ASCII text executable\n'
+				2.	b'./b.txt: ASCII text, with no line terminators\n'
+				3.	b'./a.txt: empty \n'
+
+				File types:
+				1. Python script, ASCII text executable
+				2. ASCII text, with no line terminators
+				3. empty (for empty file)
+			'''
+
+			file_type = res.decode().split()[1:]
+			file_type = " ".join(str(x) for x in file_type)
+			result_string.append(file_type)
+			result_string.append("\n")
+		return result_string
+
+	def get_metadata(self,f):
+		data = []
+		# Attach last modified timestamp
+		modtime = os.path.getmtime(f) ##last modified time in seconds
+		'''
+			TIME FORMAT:
+			%m -> month
+			%d -> day
+			%Y -> year
+			%I -> hours in 12-hour clock
+			%M -> minutes
+			%S -> seconds
+			%p -> AM/PM
+		'''
+		data.append(time.strftime("%m/%d/%Y %I:%M:%S %p", time.localtime(modtime))) ## get time in pretty output.
+		data.append(self.get_hash(f))
+		return data
+
 
 	def run(self):
 		while True:
@@ -78,54 +148,7 @@ class server():
 							client.send(output[0].encode())
 							client.close()
 							return
-
-						# Declare a resultant string to store final output of all the files that were modified in this time interval
-						result_string = []
-						# Extracting required information: filename, filesize, last modified time string, type of file using awk
-						for i in output:
-							if i == '':
-								break
-
-							bash_command = subprocess.check_output(['ls -l '+i+' | awk \'{print  $9, $5, $6, $7, $8}\' '], shell=True).decode("utf-8")
-							'''
-							Eg outputs:
-								1.	b'./main.py 1720 Jul 17 04:15\n'
-								2.	b'./b.txt 13 Jul 17 04:15\n'
-								3.	b'./a.txt 0 Jul 17 04:15\n'
-							'''
-
-							# removing the trailing newline character
-							if decoded_bash_command[-1] == '\n':
-								decoded_bash_command = decoded_bash_command[:-1]
-							split_command = decoded_bash_command.split(" ")
-							#Note: uncomment below code block for getting only filenames
-							'''temp_command = split_command[0].split("/")
-							split_command[0] = temp_command[-1]'''
-
-							result_string+=split_command[:2]
-							result_string.append(" ".join(str(x) for x in split_command[2:]))
-
-							#file types
-							p = subprocess.Popen('file '+i, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-							res, errors = p.communicate()
-							'''
-							eg output:
-								1. b'./main.py: Python script, ASCII text executable\n'
-								2.	b'./b.txt: ASCII text, with no line terminators\n'
-								3.	b'./a.txt: empty \n'
-
-								File types:
-								1. Python script, ASCII text executable
-								2. ASCII text, with no line terminators
-								3. empty (for empty file)
-							'''
-
-							file_type = output.decode().split()[1:]
-							file_type = " ".join(str(x) for x in output)
-
-							result_string.append(file_type)
-							result_string.append("\n")
-
+						result_string = self.get_file_info(output)
 						result_string = " ".join(str(x) for x in result_string)
 						client.send(result_string.encode("utf-8"))
 
@@ -134,37 +157,11 @@ class server():
 						result_string = []
 						output = subprocess.check_output(('find', pwd, '-type', 'f')).decode("utf-8")# recursively finds all files
 						output = output.split('\n')
-
-						for i in output:
-							if i == '':
-								break
-
-							bash_command = subprocess.check_output(['ls -l '+i+' | awk \'{print $9 ,$5, $6, $7, $8}\' '], shell=True)
-							decoded_bash_command = bash_command.decode('utf-8')
-
-							# print decoded_bash_command
-							if decoded_bash_command[-1] == '\n':
-								decoded_bash_command = decoded_bash_command[:-1]
-							split_command = re.split(" ", decoded_bash_command)
-							#Note: uncomment below code block for getting only filenames
-							'''
-							temp_command = split_command[0].split("/")
-							split_command[0] = temp_command[-1]
-							'''
-
-							result_string+=split_command[:2]
-							result_string.append(" ".join(str(x) for x in split_command[2:]))
-
-							# Find file type
-							p = subprocess.Popen('file '+i, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-
-							res, errors = p.communicate()
-							file_type = output.decode().split()[1:]
-							file_type = " ".join(str(x) for x in output)
-
-							result_string.append(file_type)
-							result_string.append("\n")
-
+						if len(output) == 1 && output[0].strip()=="":
+							client.send(output[0].encode())
+							client.close()
+							return
+						result_string = self.get_file_info(output)
 						result_string = " ".join(str(x) for x in result_string)
 						client.send(result_string.encode('utf-8'))
 
@@ -172,75 +169,26 @@ class server():
 					# index regex patten
 					elif (rec_command[1] == "regex"):
 						matched_files = glob.glob(rec_command[2], recursive=True)  # see gfg and official python doc for more information
-						result_string=[]
-
-						for i in matched_files:
-							if i == '':
-								break
-
-							bash_command = subprocess.check_output(['ls -l '+i+' | awk \'{print $9 ,$5, $6, $7, $8}\' '], shell=True)
-							decoded_bash_command = bash_command.decode('utf-8')
-							# print decoded_bash_command
-							if decoded_bash_command[-1] == '\n':
-								decoded_bash_command = decoded_bash_command[:-1]
-							split_command = re.split(" ", decoded_bash_command)
-
-							#Note: uncomment below code block for getting only filenames
-							'''
-							temp_command = split_command[0].split("/")
-							split_command[0] = temp_command[-1]
-							'''
-
-							result_string+=split_command[:2]
-							result_string.append(" ".join(str(x) for x in split_command[2:]))
-
-							# Find file type
-							p = subprocess.Popen('file '+i, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-
-							res, errors = p.communicate()
-							file_type = output.decode().split()[1:]
-							file_type = " ".join(str(x) for x in output)
-
-							result_string.append(file_type)
-							result_string.append("\n")
-
-
+						if len(matched_files) == 1 && matched_files[0].strip()=="":
+							client.send(" ".encode())
+							client.close()
+							return
+						result_string = self.get_file_info(matched_files)
 						result_string = " ".join(str(x) for x in result_string)
 						client.send(result_string.encode())
 
 				elif (rec_command[0] == "hash"):
+
 					# hash verify <filename>
 					if (rec_command[1] == "verify"):
-
 						if (not os.path.isfile(rec_command[2])):
 							client.send("WRONG".encode())
 							continue
 
-						list = []
-						# Attach last modified timestamp
-						modtime = os.path.getmtime(rec_command[2]) ##last modified time in seconds
-						'''
-							TIME FORMAT:
-							%m -> month
-							%d -> day
-							%Y -> year
-							%I -> hours in 12-hour clock
-							%M -> minutes
-							%S -> seconds
-							%p -> AM/PM
-						'''
-						list.append(time.strftime("%m/%d/%Y %I:%M:%S %p", time.localtime(modtime))) ## get time in pretty output.
-
-						hash_function = hashlib.md5()
-						with open(rec_command[2], "rb") as file:
-							for chunk in iter(lambda: file.read(HASH_BUFFER_SIZE), b""):
-								hash_function.update(chunk)
-
-						# Append hexdigest to the last modified time of the file
-						list.append(hash_function.hexdigest())
-						list = " ".join(str(x) for x in list)
+						data = self.get_metadata(rec_command[2])
+						data = " ".join(str(x) for x in data)
 						# Send the list in the form of a string to the client, ENCODED!!!
-						client.send(list.encode())
+						client.send(data.encode())
 
 					# hash checkall
 					elif (rec_command[1] == "checkall"):
@@ -250,20 +198,12 @@ class server():
 						file_list = file_list.split('\n')
 						del file_list[-1] ##delete the last newline character
 						list = []
-
 						for f in file_list:
 							#only_filename = f.split("/")
 							#list.append(only_filename[-1])
 							list.append(f)
-							list.append(time.strftime("%m/%d/%Y %I:%M:%S %p", time.localtime(os.path.getmtime(f))))
-							hash_function = hashlib.md5()
-
-							with open(f, "rb") as file:
-								for chunk in iter(lambda: file.read(HASH_BUFFER_SIZE), b""):
-									hash_function.update(chunk)
-							list.append(hash_function.hexdigest())
+							list.append(get_metadata(f))
 							list.append("\n")
-
 						list = " ".join(str(x) for x in list)
 						client.send(list.encode())
 
@@ -307,18 +247,7 @@ class server():
 				elif (rec_command[0] == "downloaddata"):
 					f_list = []
 					f_list.append(rec_command[2]) #filename
-					#filesize = os.path.getsize(rec_command[2]) #filesize
-					#filesize = humanize.naturalsize(int(filesize)) #filesize in human readable form
-					#f_list.append(filesize)
-					modified_time = (time.strftime("%m/%d/%Y %I:%M:%S %p", time.localtime(os.path.getmtime(filename))))
-					f_list.append(modified_time) # last modified time
-
-					hash_function = hashlib.md5()
-					with open(rec_command[2], "rb") as file:
-						for chunk in iter(lambda: file.read(HASH_BUFFER_SIZE), b""):
-							hash_function.update(chunk)
-
-					f_list.append(hash_function.hexdigest()) #md5 checksum
+					f_list = self.get_metadata(rec_command[2])
 					f_list = " ".join(str(x) for x in f_list)
 					client.send(f_list.encode())
 
