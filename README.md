@@ -16,5 +16,8 @@ $ python server1.py
 * Here ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
 * The auto sync feature is implemented into the application and does not have separate files.
 
+# TODO
 
-
+* Data compression and archiving
+* Encryption for security purposes
+* Avoid File locking 
