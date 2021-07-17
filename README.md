@@ -2,7 +2,7 @@
 Application Level program to keep two separate directories synced, similar to Dropbox, using sockets with support for file download, index search, and file verification using md5 hashing
 
 # Usage
-* ``folder1`` and ``folder2`` represents two shared directories as per problem statement (look ``problem.pdf`` for more detail), each contains ``client`` and ``server`` scripts.
+* ``folder1`` and ``folder2`` represent two shared directories according to the problem statement (see ``problem.pdf`` for more detail); both contains ``client`` and ``server`` scripts.
 
 * Run following commands in 4 separate terminal windows
 
