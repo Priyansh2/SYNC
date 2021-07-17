@@ -48,7 +48,7 @@ UDP_BUFFER_SIZE = 32678
 HASH_BUFFER_SIZE = 4096
 class client:
 	def __init__(self):
-		self.init_time = datetime.now()
+		pass
 
 	def download(self, input_command, file_str):
 		if (input_command[1] == "TCP"):
@@ -275,6 +275,20 @@ class client:
 			print("|     ",temp[0],"     | ",humanize.naturalsize(int(temp[1]))," |     ",temp[2],"     |              ",temp[3],"              |")
 		cli_socket.close()
 
+	def get_ls_content(self,input_command):
+		# Create a new client socket for connections with the server.
+		try:
+			cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			cli_socket.connect((HOST, PORT))
+		except socket.error as e:
+			print("Error: Connection refused!!")
+
+
+		input_command = " ".join(str(x) for x in input_command)
+		cli_socket.send(input_command.encode('utf-8'))
+		cli_output = cli_socket.recv(BUFFER_SIZE).decode()
+		cli_socket.close()
+		print(cli_output)
 
 	def getlist(self, input_command):
 		# Create a new client socket for connections with the server.
@@ -391,9 +405,7 @@ class client:
 
 					# ls command output handling
 					if(input_command[0] == "ls"):
-						file_list = os.listdir(".")
-						for f in file_list:
-							print(f)
+						self.get_ls_content(input_command)
 
 					# lls is the long-list output (output of ls -l) from the server directory
 					elif (input_command[0] == "lls"):
@@ -413,7 +425,7 @@ class client:
 
 				elif (input_command[0] == "download"):
 					file_str = 'received_file_' + str(random.randrange(1, 1000)) + input_command[2].split("/")[-1]
-					while(os.path.isfile(file_str) is True):
+					while(os.path.isfile(file_str)):
 						file_str = 'received_file_' + str(random.randrange(1, 1000)) + input_command[2].split("/")[-1]
 					self.download(input_command, file_str)
 

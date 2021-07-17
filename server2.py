@@ -48,8 +48,11 @@ class server():
 				pwd = os.getcwd() #store current working directory
 				os.chdir(pwd)
 
+				if (rec_command[0]=="ls"):
+					output = subprocess.check_output(["ls"])
+					client.send(output)
 
-				if (rec_command[0] == "lls"):
+				elif (rec_command[0] == "lls"):
 					'''eg:
 					-rwxrwxrwx 1 root root    0 Jul 17 04:12 a.txt
 					-rwxrwxrwx 1 root root   13 Jul 17 04:12 b.txt
