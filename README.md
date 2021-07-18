@@ -13,7 +13,7 @@ $ python client2.py
 $ python server1.py
 ```
 
-* Here ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
+* The ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
 * The auto sync feature is implemented into the application and does not have separate files.
 
 ## Comamnds
