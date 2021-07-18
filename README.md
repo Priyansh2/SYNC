@@ -33,4 +33,4 @@ $ python server1.py
 
 - [ ] Data compression and archiving
 - [ ] Encryption for security purposes
-- [ ] Avoid File locking 
+- [ ] Conflict detection for the scenerio where a file has been modified on both sources, as opposed to where it has only been modified on one.  
