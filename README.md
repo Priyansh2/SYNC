@@ -7,10 +7,10 @@ An Application Level program to keep two separate directories synced, similar to
 * Run following commands in 4 separate terminal windows
 
 ```bash
-$ python client1.py
-$ python server2.py
-$ python client2.py
 $ python server1.py
+$ python server2.py
+$ python client1.py
+$ python client2.py
 ```
 
 * The ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
