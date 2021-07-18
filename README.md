@@ -16,7 +16,7 @@ $ python client2.py
 * The ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
 * The auto sync feature is implemented into the application and does not have separate files.
 
-## Comamnds
+## Comamnds (Please see problem.pdf for detail)
 - [x] index longlist 
 - [x] index shorlist <start_time_stamp> <end_time_stamp>
 - [x] index regex <search_pattern>
