@@ -16,8 +16,21 @@ $ python server1.py
 * Here ``client1.py`` and ``client2.py`` will interact with ``server2.py`` and ``server1.py`` respectively, and work in a synchronized environment. 
 * The auto sync feature is implemented into the application and does not have separate files.
 
+## Comamnds
+- [ ] ls 
+- [ ] lls
+- [ ] index longlist
+- [ ] index shorlist <start_time_stamp> <end_time_stamp>
+- [ ] index regex <pattern>
+- [ ] hash verfy <filename/filepath>
+- [ ] hash checkall
+- [ ] download TCP <filename/filepath>
+- [ ] download UDP <filename/filepath>
+- [ ] sync
+
+
 # TODO
 
-* Data compression and archiving
-* Encryption for security purposes
-* Avoid File locking 
+- [ ] Data compression and archiving
+- [ ] Encryption for security purposes
+- [ ] Avoid File locking 
