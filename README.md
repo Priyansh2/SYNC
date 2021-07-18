@@ -17,16 +17,14 @@ $ python client2.py
 * The auto sync feature is implemented into the application and does not have separate files.
 
 ## Comamnds
-- [ ] ls 
-- [ ] lls
-- [ ] index longlist
-- [ ] index shorlist <start_time_stamp> <end_time_stamp>
-- [ ] index regex <search_pattern>
-- [ ] hash verfy <filename/filepath>
-- [ ] hash checkall
-- [ ] download TCP <filename/filepath>
-- [ ] download UDP <filename/filepath>
-- [ ] sync
+- [x] index longlist 
+- [x] index shorlist <start_time_stamp> <end_time_stamp>
+- [x] index regex <search_pattern>
+- [x] hash verfy <filename/filepath>
+- [x] hash checkall
+- [x] download TCP <filename/filepath>
+- [x] download UDP <filename/filepath>
+- [x] sync
 
 
 # TODO
