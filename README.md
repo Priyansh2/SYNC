@@ -21,7 +21,7 @@ $ python server1.py
 - [ ] lls
 - [ ] index longlist
 - [ ] index shorlist <start_time_stamp> <end_time_stamp>
-- [ ] index regex <pattern>
+- [ ] index regex <search_pattern>
 - [ ] hash verfy <filename/filepath>
 - [ ] hash checkall
 - [ ] download TCP <filename/filepath>
