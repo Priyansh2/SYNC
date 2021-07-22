@@ -17,9 +17,9 @@ from os import name as nm
 
 
 HOST = 'localhost'  # TCP
-PORT = 1443  # TCP
+PORT = 1445  # TCP
 UDP_HOST = 'localhost'
-UDP_PORT = 1401
+UDP_PORT = 1403
 
 BUFFER_SIZE = 1024
 UDP_BUFFER_SIZE = 32678
@@ -294,6 +294,7 @@ class client:
             return
 
         cli_output = cli_output.split("\n")
+        print(cli_output)
         print(
             "|     Filename     | FileSize |     Last Modified Time     |             "
             " FileType              |\n"
