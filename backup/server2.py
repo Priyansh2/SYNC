@@ -101,7 +101,6 @@ class server:
 
     def get_metadata(self, f):
         data = []
-        # Attach last modified timestamp
         modtime = os.path.getmtime(f)  ##last modified time in seconds
         '''
             TIME FORMAT:
@@ -135,6 +134,7 @@ class server:
         print("Sent: Output of command line ==> {}".format(command))
 
     def run(self):
+        global PWD
         while True:
             try:
                 # Connect with the client
@@ -143,10 +143,13 @@ class server:
 
                 # Receive the command from the client
                 rec_command = client.recv(BUFFER_SIZE).decode('utf-8')
-                print("Received: Command Line ==> {}".format(rec_command))
-                rec_command = rec_command.split(" ")
-                os.chdir(PWD)
+                rec_command = [x.strip() for x in rec_command.split(DELIM)]
+                cmd_line = " ".join(rec_command[:-1])
+                dir_path = rec_command[-1]
+                print("Received: Command Line ==> {} in {}".format(cmd_line, dir_path))
+                PWD = rec_command[-1]
 
+                os.chdir(PWD)
                 if rec_command[0] == "ls":
                     output = subprocess.check_output(["ls"]).decode('utf-8')
                     self.send_output(client, output, rec_command)
@@ -164,12 +167,8 @@ class server:
                     # index shorlist <starttimestamp> <endtimestamp>
                     if rec_command[1] == "shortlist":
                         # eg: index shortlist 2021-07-22 13:00:00 2021-07-22 23:00:00
-                        starttime = (
-                            rec_command[2] + ' ' + rec_command[3]
-                        )  # year-month-day format
-                        endtime = (
-                            rec_command[4] + ' ' + rec_command[5]
-                        )  # year-month-day format
+                        starttime = rec_command[2] + ' ' + rec_command[3]
+                        endtime = rec_command[4] + ' ' + rec_command[5]
                         # eg: find . -type f -newermt "2017-11-06 17:30:00" ! -newermt "2017-11-06 22:00:00" (search all files (not directories) which are modified after startime and exclude all files which are modified after endtime ==> files that are modified between start(inclusive) and endtime(exclusive))
 
                         output = subprocess.check_output(
@@ -185,8 +184,10 @@ class server:
                                 endtime,
                             )
                         ).decode('utf-8')
-                        # eg output: ['./main.py', './b.txt', './a.txt', '']
-                        output = output.split("\n")
+
+                        output = output.split(
+                            "\n"
+                        )  # eg output: ['./main.py', './b.txt', './a.txt', '']
 
                         if len(output) == 1:
                             client.send(output[0].encode('utf-8'))
@@ -221,7 +222,6 @@ class server:
                             for fl in glob.glob(rec_command[2], recursive=True)
                             if os.path.isfile(fl)
                         ]
-                        # see gfg and official python doc for more information
                         # print(matched_files)
                         if len(matched_files) == 1:
                             # print("lol", matched_files)
@@ -237,19 +237,21 @@ class server:
                     # hash verify <filename>
                     if rec_command[1] == "verify":
                         if not os.path.isfile(rec_command[2]):
-                            print("Error: {} not found!!".format(rec_command[2]))
+                            print(
+                                "Hash <verify> Error: {} not found!!".format(
+                                    rec_command[2]
+                                )
+                            )
                             client.send("WRONG".encode('utf-8'))
                             client.close()
                             continue
 
                         data = self.get_metadata(rec_command[2])
                         data = DELIM.join(str(x) for x in data)
-                        # Send the list in the form of a string to the client, ENCODED!!!
                         self.send_output(client, data, rec_command)
 
                     # hash checkall
                     elif rec_command[1] == "checkall":
-                        # Execute command to find all the files ONLY! Otherwise upper command yielded directories, and an error persisted.
                         file_list = subprocess.check_output(
                             (FIND_CMD, PWD, '-type', 'f')
                         ).decode('utf-8')
@@ -269,7 +271,7 @@ class server:
                 elif rec_command[0] == "download":
 
                     if not os.path.isfile(rec_command[2]):
-                        print("Error: {} not found!!".format(rec_command[2]))
+                        print("Download Error: {} not found!!".format(rec_command[2]))
                         client.send("WRONG".encode('utf-8'))
                         client.close()
                         continue
@@ -314,8 +316,10 @@ class server:
                                 server_udp_socket.sendto(
                                     data, (udp_client_host, udp_client_port)
                                 )
+                                time.sleep(0.02)
                                 progress.update(len(data))
                                 progress.refresh()
+
                     progress.close()
                     print("Sucessfully transmitted {}".format(filename))
 

@@ -21,6 +21,11 @@ HOST = 'localhost'
 BUFFER_SIZE = 1024
 UDP_BUFFER_SIZE = 32678
 HASH_BUFFER_SIZE = 4096
+FIND_CMD = "find"
+DELIM = ":::"
+PWD = "D:\\Github\\D-SYNC\\folder1"
+if nm == 'nt':
+    FIND_CMD = "C:\\cmder\\vendor\\git-for-windows\\usr\\bin\\find.exe"
 
 
 class server:
@@ -30,8 +35,9 @@ class server:
             self.serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.serversocket.bind((HOST, PORT))
             self.serversocket.listen(5)
+            print("Server listening...")
         except socket.error as e:
-            print("Error: Connection `!!")
+            print("Error: Unable to start server!!")
 
     def get_hash(self, f):
         hash_function = hashlib.md5()
@@ -47,72 +53,88 @@ class server:
         for f in file_list:
             if f == '':
                 break
+            fl = f.replace(' ', '\ ')
 
-            bash_command = subprocess.check_output(
-                ['ls -l ' + f + ' | awk \'{print  $9, $5, $6, $7, $8}\' '], shell=True
-            ).decode("utf-8")
+            if nm == "nt":
+                fl = r'"{}"'.format(f)
+            cmd = (
+                'ls -l '
+                + fl
+                + ' | awk \'{print  substr($0,index($0,$9)), $5, $6, $7, $8}\' '
+            )
+            decoded_bash_command = subprocess.check_output(cmd, shell=True).decode(
+                'utf-8'
+            )
             '''
-			Eg outputs:
-				1.	b'./main.py 1720 Jul 17 04:15\n'
-				2.	b'./b.txt 13 Jul 17 04:15\n'
-				3.	b'./a.txt 0 Jul 17 04:15\n'
-			'''
-
-            # removing the trailing newline character
-            if decoded_bash_command[-1] == '\n':
-                decoded_bash_command = decoded_bash_command[:-1]
-            split_command = re.split(" ", decoded_bash_command)
-            # Note: uncomment below code block for getting only filenames
-            '''temp_command = split_command[0].split("/")
-			split_command[0] = temp_command[-1]'''
-
-            result_string += split_command[:2]
-            result_string.append(" ".join(str(x) for x in split_command[2:]))
-
+            Eg outputs:
+                1.  b'./main.py 1720 Jul 17 04:15\n'
+                2.  b'./b.txt 13 Jul 17 04:15\n'
+                3.  b'./a.txt 0 Jul 17 04:15\n'
+                4. b'./New Text Document.txt 0 Jul 22 15:17\n'
+            '''
+            split_command = re.split(" ", decoded_bash_command.strip())
+            file = " ".join(x for x in split_command[:-3][:-1])
+            file_size = split_command[:-3][-1]
+            mod_time = " ".join(str(x) for x in split_command[-3:])
             # file types
             p = subprocess.Popen(
-                'file ' + f, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+                'file ' + fl, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
             )
             res, errors = p.communicate()
             '''
-			eg output:
-				1. b'./main.py: Python script, ASCII text executable\n'
-				2.	b'./b.txt: ASCII text, with no line terminators\n'
-				3.	b'./a.txt: empty \n'
+            eg output:
+                1. b'./main.py: Python script, ASCII text executable\n'
+                2.  b'./b.txt: ASCII text, with no line terminators\n'
+                3.  b'./a.txt: empty \n'
 
-				File types:
-				1. Python script, ASCII text executable
-				2. ASCII text, with no line terminators
-				3. empty (for empty file)
-			'''
-
-            file_type = res.decode().split()[1:]
-            file_type = " ".join(str(x) for x in file_type)
-            result_string.append(file_type)
+                File types:
+                1. Python script, ASCII text executable
+                2. ASCII text, with no line terminators
+                3. empty (for empty file)
+            '''
+            file_type = res.decode('utf-8').split(file)[1].split(":")[1].strip()
+            temp = [file, file_size, mod_time, file_type]
+            result_string += temp
             result_string.append("\n")
+        # print(result_string)
         return result_string
 
     def get_metadata(self, f):
         data = []
-        # Attach last modified timestamp
         modtime = os.path.getmtime(f)  ##last modified time in seconds
         '''
-			TIME FORMAT:
-			%m -> month
-			%d -> day
-			%Y -> year
-			%I -> hours in 12-hour clock
-			%M -> minutes
-			%S -> seconds
-			%p -> AM/PM
-		'''
+            TIME FORMAT:
+            %m -> month
+            %d -> day
+            %Y -> year
+            %I -> hours in 12-hour clock
+            %M -> minutes
+            %S -> seconds
+            %p -> AM/PM
+        '''
         data.append(
             time.strftime("%m/%d/%Y %I:%M:%S %p", time.localtime(modtime))
         )  ## get time in pretty output.
         data.append(self.get_hash(f))
         return data
 
+    def send_output(self, client_soc, data, command):
+        block_size = 1000
+        block_number = 0
+        # print(len(data.encode("utf-8")))
+        while True:
+            # Selected block to send
+            block_data = data[
+                block_number * block_size : (block_number + 1) * block_size
+            ]
+            client_soc.send(block_data.encode("utf-8"))
+            if not block_data:
+                break
+            block_number += 1
+        print("Sent: Output of command line ==> {}".format(command))
+
     def run(self):
+        global PWD
         while True:
             try:
                 # Connect with the client
@@ -120,38 +142,39 @@ class server:
                 print("Connected with {} :  {}".format(addr[0], str(addr[1])))
 
                 # Receive the command from the client
-                rec_command = client.recv(BUFFER_SIZE).decode()
-                print("Received: Command Line ==> {}".format(rec_command))
-                rec_command = rec_command.split(" ")
-                pwd = os.getcwd()  # store current working directory
-                os.chdir(pwd)
+                rec_command = client.recv(BUFFER_SIZE).decode('utf-8')
+                rec_command = [x.strip() for x in rec_command.split(DELIM)]
+                cmd_line = " ".join(rec_command[:-1])
+                dir_path = rec_command[-1]
+                print("Received: Command Line ==> {} in {}".format(cmd_line, dir_path))
+                PWD = rec_command[-1]
 
+                os.chdir(PWD)
                 if rec_command[0] == "ls":
-                    output = subprocess.check_output(["ls"])
-                    client.send(output)
+                    output = subprocess.check_output(["ls"]).decode('utf-8')
+                    self.send_output(client, output, rec_command)
 
                 elif rec_command[0] == "lls":
                     '''eg:
                     -rwxrwxrwx 1 root root    0 Jul 17 04:12 a.txt
                     -rwxrwxrwx 1 root root   13 Jul 17 04:12 b.txt
                     -rwxrwxrwx 1 root root 1750 Jul 17 04:12 main.py'''
-
-                    output = subprocess.check_output(["ls", "-l"])
-                    # print(output.decode("utf-8"))
-                    client.send(output)
+                    output = subprocess.check_output(["ls", "-l"]).decode('utf-8')
+                    self.send_output(client, output, rec_command)
 
                 elif rec_command[0] == "index":
 
                     # index shorlist <starttimestamp> <endtimestamp>
                     if rec_command[1] == "shortlist":
+                        # eg: index shortlist 2021-07-22 13:00:00 2021-07-22 23:00:00
                         starttime = rec_command[2] + ' ' + rec_command[3]
                         endtime = rec_command[4] + ' ' + rec_command[5]
                         # eg: find . -type f -newermt "2017-11-06 17:30:00" ! -newermt "2017-11-06 22:00:00" (search all files (not directories) which are modified after startime and exclude all files which are modified after endtime ==> files that are modified between start(inclusive) and endtime(exclusive))
 
                         output = subprocess.check_output(
                             (
-                                'find',
-                                pwd,
+                                FIND_CMD,
+                                PWD,
                                 '-type',
                                 'f',
                                 '-newermt',
@@ -160,92 +183,104 @@ class server:
                                 '-newermt',
                                 endtime,
                             )
-                        ).decode("utf-8")
+                        ).decode('utf-8')
+
                         output = output.split(
                             "\n"
                         )  # eg output: ['./main.py', './b.txt', './a.txt', '']
 
                         if len(output) == 1:
-                            client.send(output[0].encode())
+                            client.send(output[0].encode('utf-8'))
                             client.close()
-                            return
+                            continue
                         result_string = self.get_file_info(output)
-                        result_string = " ".join(str(x) for x in result_string)
-                        client.send(result_string.encode("utf-8"))
+                        result_string = DELIM.join(str(x) for x in result_string)
+                        self.send_output(client, result_string, rec_command)
 
                     # index longlist
                     elif rec_command[1] == "longlist":
                         result_string = []
+
                         output = subprocess.check_output(
-                            ('find', pwd, '-type', 'f')
+                            (FIND_CMD, PWD, '-type', 'f')
                         ).decode(
-                            "utf-8"
-                        )  # recursively finds all files
+                            'utf-8'
+                        )  # recursively finds all files'''
                         output = output.split('\n')
                         if len(output) == 1 and output[0].strip() == "":
-                            client.send(output[0].encode())
+                            client.send(output[0].encode('utf-8'))
                             client.close()
-                            return
+                            continue
                         result_string = self.get_file_info(output)
-                        result_string = " ".join(str(x) for x in result_string)
-                        client.send(result_string.encode('utf-8'))
+                        result_string = DELIM.join(str(x) for x in result_string)
+                        self.send_output(client, result_string, rec_command)
 
                     # index regex patten
                     elif rec_command[1] == "regex":
-                        matched_files = glob.glob(
-                            rec_command[2], recursive=True
-                        )  # see gfg and official python doc for more information
-                        if len(matched_files) == 1 and matched_files[0].strip() == "":
-                            client.send(" ".encode())
+                        matched_files = [
+                            fl
+                            for fl in glob.glob(rec_command[2], recursive=True)
+                            if os.path.isfile(fl)
+                        ]
+                        # print(matched_files)
+                        if len(matched_files) == 1:
+                            # print("lol", matched_files)
+                            client.send(" ".encode('utf-8'))
                             client.close()
-                            return
+                            continue
                         result_string = self.get_file_info(matched_files)
-                        result_string = " ".join(str(x) for x in result_string)
-                        client.send(result_string.encode())
+                        result_string = DELIM.join(str(x) for x in result_string)
+                        self.send_output(client, result_string, rec_command)
 
                 elif rec_command[0] == "hash":
 
                     # hash verify <filename>
                     if rec_command[1] == "verify":
                         if not os.path.isfile(rec_command[2]):
-                            client.send("WRONG".encode())
+                            print(
+                                "Hash <verify> Error: {} not found!!".format(
+                                    rec_command[2]
+                                )
+                            )
+                            client.send("WRONG".encode('utf-8'))
+                            client.close()
                             continue
 
                         data = self.get_metadata(rec_command[2])
-                        data = " ".join(str(x) for x in data)
-                        # Send the list in the form of a string to the client, ENCODED!!!
-                        client.send(data.encode())
+                        data = DELIM.join(str(x) for x in data)
+                        self.send_output(client, data, rec_command)
 
                     # hash checkall
                     elif rec_command[1] == "checkall":
-                        # file_list = os.listdir(".")
-                        # Execute command to find all the files ONLY! Otherwise upper command yielded directories, and an error persisted.
                         file_list = subprocess.check_output(
-                            ('find', pwd, '-type', 'f')
-                        ).decode("utf-8")
+                            (FIND_CMD, PWD, '-type', 'f')
+                        ).decode('utf-8')
                         file_list = file_list.split('\n')
                         del file_list[-1]  ##delete the last newline character
-                        list = []
+                        output = []
                         for f in file_list:
-                            # only_filename = f.split("/")
-                            # list.append(only_filename[-1])
-                            list.append(f)
-                            list.append(get_metadata(f))
-                            list.append("\n")
-                        list = " ".join(str(x) for x in list)
-                        client.send(list.encode())
+                            temp = []
+                            temp.append(f)
+                            temp += self.get_metadata(f)
+                            temp.append("\n")
+                            output += temp
+                        output = DELIM.join(str(x) for x in output)
+                        # print(output)
+                        self.send_output(client, output, rec_command)
 
                 elif rec_command[0] == "download":
 
                     if not os.path.isfile(rec_command[2]):
-                        client.send("WRONG".encode())
+                        print("Download Error: {} not found!!".format(rec_command[2]))
+                        client.send("WRONG".encode('utf-8'))
+                        client.close()
                         continue
 
                     filesize = os.path.getsize(rec_command[2])
-                    client.send(str(filesize).encode())
+                    client.send(str(filesize).encode('utf-8'))
                     progress = tqdm.tqdm(
                         range(filesize),
-                        f"Sending {rec_command[2]}",
+                        f"Sending... {rec_command[2]}",
                         unit="B",
                         unit_scale=True,
                         unit_divisor=BUFFER_SIZE,
@@ -261,10 +296,12 @@ class server:
                                     break
                                 client.send(data)
                                 progress.update(len(data))
+                                progress.refresh()
 
                     elif rec_command[1] == "UDP":
-                        udp_client_port = rec_command[4]
                         udp_client_host = rec_command[3]
+                        udp_client_port = int(rec_command[4])
+
                         server_udp_socket = socket.socket(
                             socket.AF_INET, socket.SOCK_DGRAM
                         )
@@ -277,26 +314,31 @@ class server:
                                 if not data:
                                     break
                                 server_udp_socket.sendto(
-                                    l, (udp_client_host, udp_client_port)
+                                    data, (udp_client_host, udp_client_port)
                                 )
+                                time.sleep(0.02)
                                 progress.update(len(data))
+                                progress.refresh()
+
+                    progress.close()
+                    print("Sucessfully transmitted {}".format(filename))
 
                 elif rec_command[0] == "downloaddata":
                     f_list = []
                     f_list.append(rec_command[2])  # filename
-                    f_list = self.get_metadata(rec_command[2])
-                    f_list = " ".join(str(x) for x in f_list)
-                    client.send(f_list.encode())
+                    f_list += self.get_metadata(rec_command[2])
+                    f_list = DELIM.join(str(x) for x in f_list)
+                    self.send_output(client, f_list, rec_command)
 
                 elif rec_command[0] == "modified":
                     filename = rec_command[1]
                     last_modified_time = str(os.path.getmtime(filename))
-                    client.send(last_modified_time.encode())
+                    self.send_output(client, last_modified_time, rec_command)
 
                 elif rec_command[0] == "filepermission":
                     filename = rec_command[1]
                     permission_str = str(os.lstat(filename).st_mode)
-                    client.send(permission_str.encode())
+                    self.send_output(client, permission_str, rec_command)
                 client.close()
 
             except socket.error as e:

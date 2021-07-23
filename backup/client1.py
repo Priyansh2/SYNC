@@ -14,7 +14,10 @@ import time
 import tqdm
 
 from datetime import datetime
+from func_timeout import FunctionTimedOut
+from func_timeout import func_timeout
 from os import name as nm
+from pathlib import Path
 from tabulate import tabulate
 
 HOST = 'localhost'  # TCP
@@ -26,6 +29,11 @@ BUFFER_SIZE = 1024
 UDP_BUFFER_SIZE = 32678
 HASH_BUFFER_SIZE = 4096
 UDP_TIME_OUT = 10
+STDIN_TIMEOUT = 100
+SCRIPT_PATH = os.path.realpath(__file__)
+SCRIPT_DIR_PATH = os.path.dirname(SCRIPT_PATH)
+CLI_PWD = "D:\\Github\\D-SYNC\\folder1"
+SV_PWD = "D:\\Github\\D-SYNC\\folder2"
 
 
 class client:
@@ -39,15 +47,13 @@ class client:
             if not temp:
                 break
             cli_output += temp
-            # print("ok!!")
         return cli_output
 
     def display(self, cli_output, fields):
-        temp = []
         '''
         fields eg: ['FileName', 'FileSize', 'Last Modified Time', 'FileType']
         '''
-        # t = PrettyTable(fields)
+        temp = []
         if len(cli_output.split()) != 0:
             cli_output = cli_output.split("\n")
             for row in cli_output:
@@ -55,7 +61,6 @@ class client:
                 row = [textwrap.fill(x, width=60) for x in row if x.strip()]
                 if len(row) != len(fields):
                     continue
-                # t.add_row(row)
                 temp.append(row)
         t = tabulate(temp, headers=fields)
         print(t)
@@ -67,7 +72,7 @@ class client:
                 hash_function.update(chunk)
         return hash_function.hexdigest()
 
-    def download(self, input_command, file_str):
+    def download(self, input_command, file_str, sv_dir=SV_PWD, verbose=True):
         if input_command[1] == "TCP":
             # Create a new client socket for connections with the server.
             try:
@@ -76,7 +81,8 @@ class client:
             except socket.error as e:
                 print("TCP Error (1): Connection refused!!")
 
-            input_temp_command = " ".join(str(x) for x in input_command)
+            input_command.append(sv_dir)
+            input_temp_command = DELIM.join(str(x) for x in input_command)
             cli_socket.send(input_temp_command.encode('utf-8'))
             data = cli_socket.recv(BUFFER_SIZE).decode('utf-8')
 
@@ -109,23 +115,28 @@ class client:
                     progress.refresh()
 
             progress.close()
-            # Set file permissions. BONUS!
-            filep = self.get_file_permission(["filepermission", input_command[2]])
+            # Set file permissions.
+            filep = self.get_file_permission(
+                ["filepermission", input_command[2]], sv_dir=sv_dir
+            )
             filep = int(filep)
             try:
                 os.chmod(file_str, filep)
-                print(
-                    "Setting file permissions of {} to {} ...".format(
-                        file_str, oct(filep)
+                if verbose:
+                    print(
+                        "Setting file permissions of {} to {} ...".format(
+                            file_str, oct(filep)
+                        )
                     )
-                )
                 # oct output eg: 0o100644 ==> Here  last 3 octal digit i.e, 644 represents the file permission mask and upper parts i.e, 0o100 tells the file type so to get the file's permission we can extract last 3 octal digit -> oct(int_filep)[-3:]
             except:
-                print(
-                    "TCP: Insufficient read permission. Unable to access file {}"
-                    .format(input_command[2])
-                )
-
+                if verbose:
+                    print(
+                        "TCP: Insufficient read permission. Unable to access file {}"
+                        .format(input_command[2])
+                    )
+                else:
+                    pass
             print('TCP: Sucessfully downloaded {}'.format(input_command[2]))
             cli_socket.close()
 
@@ -137,18 +148,20 @@ class client:
                 print("TCP Error (2): Connection refused!!")
 
             # download metadata: filename, filesize, timestamp, md5hash
-            cmd = "downloaddata TCP " + input_command[2]
+            cmd = ["downloaddata", "TCP", input_command[2], sv_dir]
+            cmd = DELIM.join(x for x in cmd)
             cli_socket.send(cmd.encode('utf-8'))
             file_metadata = self.recieve_output(cli_socket)
             cli_socket.close()
             file_metadata = file_metadata.split(DELIM)
             filesize = humanize.naturalsize(filesize)
-            print(
-                "The size and hash of the file {} is {} and {} , last modified on"
-                " {}.".format(
-                    file_metadata[0], filesize, file_metadata[2], file_metadata[1]
+            if verbose:
+                print(
+                    "The size and hash of the file {} is {} and {} , last modified on"
+                    " {}.".format(
+                        file_metadata[0], filesize, file_metadata[2], file_metadata[1]
+                    )
                 )
-            )
 
             # print(file_metadata)
 
@@ -163,13 +176,11 @@ class client:
 
             # Create a new UDP client socket server for connections with the original server.
             cli_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            udp_socket_info = str(UDP_HOST) + " " + str(UDP_PORT)
+            udp_socket_info = str(UDP_HOST) + DELIM + str(UDP_PORT)
             cli_udp_socket.bind((UDP_HOST, UDP_PORT))
             cli_udp_socket.settimeout(UDP_TIME_OUT)  # Set time-out on the UDP socket.
-
-            input_temp_command = (
-                " ".join(str(x) for x in input_command).strip() + " " + udp_socket_info
-            )
+            input_command += [udp_socket_info, sv_dir]
+            input_temp_command = DELIM.join(str(x) for x in input_command)
             cli_socket.send(input_temp_command.encode('utf-8'))
             data = cli_socket.recv(BUFFER_SIZE).decode('utf-8')
             cli_socket.close()
@@ -196,16 +207,17 @@ class client:
                     try:
                         data, addr = cli_udp_socket.recvfrom(UDP_BUFFER_SIZE)
                     except socket.timeout:
-                        print("UDP Error (2): Timed out!!")
+                        break
+                    if not data:
                         break
                     fudp.write(data)
                     progress.update(len(data))
                     progress.refresh()
-                    if not data or data == "":
-                        break
+            progress.clear()
             progress.close()
             cli_udp_socket.close()
-            print('UDP: Verifying downloaded file...')
+            if verbose:
+                print('UDP: Verifying downloaded file...')
 
             # Verify the calculated hash with the received file hash
             # Create a new socket function for receiving file metadata: filename, filesize, timestamp, md5 hash
@@ -213,9 +225,10 @@ class client:
                 cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 cli_socket.connect((HOST, PORT))
             except socket.error as e:
-                print("UDP Error (3): Connection refused!!")
+                print("UDP Error (2): Connection refused!!")
 
-            cmd = "downloaddata TCP " + input_command[2]
+            cmd = ["downloaddata", "TCP", input_command[2], sv_dir]
+            cmd = DELIM.join(x for x in cmd)
             cli_socket.send(cmd.encode('utf-8'))
             file_metadata = self.recieve_output(cli_socket)
             file_metadata = file_metadata.split(DELIM)
@@ -223,38 +236,52 @@ class client:
 
             file_hash = file_metadata[2]
             udp_hash = self.get_hash(file_str)
-            print("Md5 cheksum of downloaded file ==> {}".format(udp_hash))
+            if verbose:
+                print("Md5 cheksum of downloaded file ==> {}".format(udp_hash))
 
             if file_hash == udp_hash:
-                print("UDP: VERIFIED!!")
-                filep = self.get_file_permission(["filepermission", input_command[2]])
+                if verbose:
+                    print("UDP: VERIFIED!!")
+                filep = self.get_file_permission(
+                    ["filepermission", input_command[2]], sv_dir=sv_dir
+                )
                 filep = int(filep)
 
                 try:
                     os.chmod(file_str, filep)
-                    print(
-                        "Set file permissions of {} to {}".format(file_str, oct(filep))
-                    )
+                    if verbose:
+                        print(
+                            "Set file permissions of {} to {}".format(
+                                file_str, oct(filep)
+                            )
+                        )
                     # oct output eg: 0o100644 ==> Here  last 3 octal digit i.e, 644 represents the file permission mask and upper parts i.e, 0o100 tells the file type so to get the file's permission we can extract last 3 octal digit -> oct(int_filep)[-3:]
                 except:
-                    print(
-                        "UDP: Insufficient read permissions. Unable to access file {}"
-                        .format(input_command[2])
-                    )
+                    if verbose:
+                        print(
+                            "UDP: Insufficient read permissions. Unable to access"
+                            " file {}".format(input_command[2])
+                        )
+                    else:
+                        pass
                 print("UDP: Sucessfully downloaded {}".format(input_command[2]))
 
                 filesize = humanize.naturalsize(filesize)
-                print(
-                    "The size and hash of the file {} is {} and {} , last modified on"
-                    " {}.".format(
-                        file_metadata[0], filesize, file_metadata[2], file_metadata[1]
+                if verbose:
+                    print(
+                        "The size and hash of the file {} is {} and {} , last modified"
+                        " on {}.".format(
+                            file_metadata[0],
+                            filesize,
+                            file_metadata[2],
+                            file_metadata[1],
+                        )
                     )
-                )
 
             else:
-                print("UDP: Downloaded file corrupted!!")
+                print("UDP: Download failed!!. {} corrupted".format(input_command[2]))
 
-    def hash(self, input_command):
+    def hash(self, input_command, sv_dir=SV_PWD, verbose=True):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -262,15 +289,18 @@ class client:
         except socket.error as e:
             print("Hash Error: Connection refused!!")
 
-        if input_command[1] == "verify":
-            filename = input_command[2]
-            input_command = " ".join(str(x) for x in input_command)
-            cli_socket.send(input_command.encode('utf-8'))
-            cli_output = self.recieve_output(cli_socket)
+        temp = input_command
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
+        cli_socket.send(input_command.encode('utf-8'))
+        cli_output = self.recieve_output(cli_socket)
+        file = temp[2].strip()
+
+        if temp[1] == "verify":
             if cli_output == 'WRONG':
                 print(
                     "hash <verify> {}: File do not exist!!. Enter the correct file path"
-                    .format(input_command[2])
+                    .format(file)
                 )
                 return
 
@@ -278,63 +308,64 @@ class client:
 
             file_hash = cli_output[1].strip()
             file_modtime = cli_output[0].strip()
-            print(
-                "The hash of the file {} is {} , last modified on {}.".format(
-                    filename, file_hash, file_modtime
+            if verbose:
+                print(
+                    "The hash of the file {} is {} , last modified on {}.".format(
+                        file, file_hash, file_modtime
+                    )
                 )
-            )
             cli_socket.close()
             return file_hash
 
-        elif input_command[1] == "checkall":
-            input_command = " ".join(str(x) for x in input_command)
-            cli_socket.send(input_command.encode('utf-8'))
-            cli_output = self.recieve_output(cli_socket)
-            self.display(
-                cli_output, fields=["FileName", "Last Modified Time", " Md5 Checksum"]
-            )
+        elif temp[1] == "checkall":
+            if verbose:
+                self.display(
+                    cli_output,
+                    fields=["FileName", "Last Modified Time", " Md5 Checksum"],
+                )
             cli_socket.close()
 
-    def index(self, input_command):
+    def index(self, input_command, sv_dir=SV_PWD, verbose=True):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cli_socket.connect((HOST, PORT))
         except socket.error as e:
             print("Index Error: Connection refused!!")
-
-        input_command = " ".join(str(x) for x in input_command)
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
         cli_socket.send(input_command.encode('utf-8'))
         cli_output = self.recieve_output(cli_socket)
-        self.display(
-            cli_output,
-            fields=['FileName', 'FileSize', 'Last Modified Time', 'FileType'],
-        )
+        if verbose:
+            self.display(
+                cli_output,
+                fields=['FileName', 'FileSize', 'Last Modified Time', 'FileType'],
+            )
         cli_socket.close()
 
-    def get_ls_content(self, input_command):
+    def get_ls_content(self, input_command, sv_dir=SV_PWD):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cli_socket.connect((HOST, PORT))
         except socket.error as e:
             print("Error: Connection refused!!")
-
-        input_command = " ".join(str(x) for x in input_command)
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
         cli_socket.send(input_command.encode('utf-8'))
         cli_output = self.recieve_output(cli_socket)
         print(cli_output)
         cli_socket.close()
 
-    def getlist(self, input_command):
+    def getlist(self, input_command, sv_dir=SV_PWD):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cli_socket.connect((HOST, PORT))
         except socket.error as e:
             print("Error: Connection refused!!")
-
-        input_command = " ".join(str(x) for x in input_command)
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
         cli_socket.send(input_command.encode('utf-8'))
         cli_output = self.recieve_output(cli_socket)
         cli_output = cli_output.split("\n")
@@ -345,91 +376,148 @@ class client:
 
         return cli_output
 
-    def get_file_permission(self, input_command):
+    def get_file_permission(self, input_command, sv_dir=SV_PWD):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cli_socket.connect((HOST, PORT))
         except socket.error as e:
             print("Error: Connection refused!!")
-
-        input_command = " ".join(str(x) for x in input_command)
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
         cli_socket.send(input_command.encode('utf-8'))
         filep = self.recieve_output(cli_socket)
         cli_socket.close()
 
         return filep
 
-    def get_last_modified_time(self, input_command):
+    def get_last_modified_time(self, input_command, sv_dir=SV_PWD):
         # Create a new client socket for connections with the server.
         try:
             cli_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             cli_socket.connect((HOST, PORT))
         except socket.error as e:
             print("Error: Connection refused!!")
-
-        input_command = " ".join(str(x) for x in input_command)
+        input_command.append(sv_dir)
+        input_command = DELIM.join(str(x) for x in input_command)
         cli_socket.send(input_command.encode('utf-8'))
         cli_output = self.recieve_output(cli_socket)
         cli_socket.close()
 
         return cli_output
 
-    def sync(self):
-        # Retrieve the files and directories names in remote folder (client shared directory)
-        local_file_list = os.listdir(".")
-        print(local_file_list)
-        lls_list = self.getlist(["lls"])
+    def sync(self, cli_dir=CLI_PWD, sv_dir=SV_PWD, verbose=True):
+        '''
+        NOTE: 1. This is one way sync between cli_dir (folder 1) and sv_dir (folder 2). This means clid_dir will always have same files and directories of sv_dir at any instance of time
+
+        2. For auto sync, we have to do one-way sync for both clients (folder1 and folder2)
+        '''
+        os.chdir(cli_dir)
+        print("Syncronising {} with {}...".format(cli_dir, sv_dir))
+        local_file_list = os.listdir(".")  # get files and directories names in cli_dir
+        # print("Local files and dirs in {}".format(cli_dir), local_file_list)
+        lls_list = self.getlist(["lls"], sv_dir=sv_dir)
         temp_list = []
-        # Retrieve the files and directories names in server folder (other client's shared directory)
+        # Retrieve the files and directories names in sv_dir
         server_file_list = []
-        for element in lls_list:
-            temp_list = element.split(" ")
-            server_file_list.append(temp_list[-1])
-        print(server_file_list)
-        # Iterate over the elements and download missing files from server to remote folder
-        for element in server_file_list:
-            if not element or len(element.strip())=0 or element in local_file_list:
+        temp = []
+        for row in lls_list:
+            row = [x for x in row.split(" ") if x.strip()]
+            if not row or (len(row) == 1 and len(row[0].strip()) == 0):
                 continue
-            self.download(["download", "TCP", element], element)
-            print("<== (1) File downloaded ==> {}".format(element))
-
-        # Iterate over the elements and download recently modified filesas per question to remote folder
-        local_file_list = os.listdir(".")
-        for element in server_file_list:
-            if not element:
+            typ = 'f'
+            if row[0][0] == 'd':
+                typ = 'd'
+            fl = " ".join(x for x in row[8:])
+            temp.append(fl)
+            server_file_list.append((fl, typ))
+        # print("Server files and dirs in {}".format(sv_dir), temp)
+        # print(server_file_list)
+        # Iterate over the server_file_list and download missing files and directories from sv_dir to cli_dir
+        for fl, typ in server_file_list:
+            if fl in local_file_list:
                 continue
-
-            server_hash = self.hash(["hash", "verify", element])
-            # Compute the hash function for local file
-            local_hash = self.get_hash(element)
-            server_last_modified = int(
-                self.get_last_modified_time(["modified", element])
+            if typ == 'd':
+                # Recursively syncing directories
+                new_sv_dir = os.path.join(sv_dir, fl)
+                new_cli_dir = os.path.join(cli_dir, fl)
+                Path(new_cli_dir).mkdir(parents=True, exist_ok=True)
+                self.sync(cli_dir=new_cli_dir, sv_dir=new_sv_dir, verbose=verbose)
+                print(
+                    " <===> (1-S-D) Downloaded dir: {} to {} <===>".format(
+                        new_cli_dir, new_sv_dir
+                    )
+                )
+                os.chdir(cli_dir)
+                continue
+            sv_fl_path = os.path.join(sv_dir, fl)
+            cli_fl_path = os.path.join(cli_dir, fl)
+            self.download(
+                ["download", "TCP", sv_fl_path], fl, sv_dir=sv_dir, verbose=False
             )
-            client_last_modified = int(str(os.path.getmtime(element)))
-            # compare lastmodified times of files in client_folder and server_folder
+            print(
+                " <===> (2-S-F) Downloaded file: {} to {} <===>".format(
+                    cli_fl_path, sv_fl_path
+                )
+            )
+
+        # Iterate over the server_file_list and download recently modified files and directories from sv_dir to cli_dir
+        local_file_list = os.listdir(".")
+        for fl, typ in server_file_list:
+            if typ == 'd':
+                new_sv_dir = os.path.join(sv_dir, fl)
+                new_cli_dir = os.path.join(cli_dir, fl)
+                self.sync(cli_dir=new_cli_dir, sv_dir=new_sv_dir, verbose=verbose)
+                print(
+                    " <===> (3-S-D) Mirrored dir: {} to {} <===>".format(
+                        new_cli_dir, new_sv_dir
+                    )
+                )
+                os.chdir(cli_dir)
+                continue
+            sv_fl_path = os.path.join(sv_dir, fl)
+            cli_fl_path = os.path.join(cli_dir, fl)
+            server_hash = self.hash(
+                ["hash", "verify", sv_fl_path], sv_dir=sv_dir, verbose=False
+            )
+            local_hash = self.get_hash(fl)
+
+            server_last_modified = float(
+                self.get_last_modified_time(["modified", sv_fl_path], sv_dir=sv_dir)
+            )
+            client_last_modified = float(str(os.path.getmtime(fl)))
+            # compare lastmodified times of files in cli_dir and sv_dir
             # Any file is said to be recently modified if its lastmodified time (seconds ) is greater than its previous version
-            # We will download files from server to client folder. Similarly, the other client (acting as server) will do the same thing for its server (our client acting as server)
+            # We will download files from sv_dir to cli_dir in case file on sv_dir is recenlty modified.
 
             if client_last_modified > server_last_modified:
                 continue
             else:
                 if local_hash != server_hash:
-                    self.download(["download", "TCP", element], element)
-                    print("<== (2) File downloaded ==> {}".format(element))
+                    self.download(
+                        ["download", "TCP", sv_fl_path],
+                        fl,
+                        sv_dir=sv_dir,
+                        verbose=False,
+                    )
+                    print(
+                        " <===> (4-S-F) Mirrored file: {} to {} <===>".format(
+                            cli_fl_path, sv_fl_path
+                        )
+                    )
+        print("Synced!!")
 
     def run(self):
         while True:
-            print('Client > ', end=" ", flush=True)
-            # Time-out for automatic sync. User is not allowed to perform any action until sync is completed.
-            # This is to avoid file locking (read online)
-            # i, o, e = select.select([sys.stdin], [], [], 100)
-            i = True
-            if i:
-                ## Parse commands
-                input_command = sys.stdin.readline().strip()
-                input_command = input_command.split(" ")
-
+            os.chdir(CLI_PWD)
+            print('Client >> ', end=" ", flush=True)
+            try:
+                ## do auto aync if user dont press "enter" within STDIN_TIMEOUT sec
+                input_command = func_timeout(STDIN_TIMEOUT, lambda: input())
+                input_command = input_command.strip().split(" ")
+                if len(input_command) > 2:
+                    filepath = " ".join(input_command[2:])
+                    input_command = input_command[:2] + [filepath]
                 if len(input_command) == 1:
 
                     # ls command output handling
@@ -457,24 +545,18 @@ class client:
                         'received_file_'
                         + str(random.randrange(1, 1000))
                         + "_"
-                        + input_command[2].split("/")[-1]
+                        + os.path.basename(input_command[2])
                     )
-                    # print(input_command[2].split("/"))
                     while os.path.isfile(file_str):
                         file_str = (
                             'received_file_'
                             + str(random.randrange(1, 1000))
                             + "_"
-                            + input_command[2].split("/")[-1]
+                            + os.path.basename(input_command[2])
                         )
                     self.download(input_command, file_str)
 
-                else:
-                    print("No such command!!. Choose one among the below commands:")
-                    print(
-                        """1. ls\n2. lls\n3. index <flag> [args]...\n4. hash <flag> [args]...\n5. download <flag> [args]...\n6. sync"""
-                    )
-            else:
+            except FunctionTimedOut:
                 # automatic sync after every 100 seconds
                 self.sync()
                 if nm == "nt":
