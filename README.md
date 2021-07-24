@@ -1,6 +1,17 @@
 # D-SYNC
 An Application Level program to keep two separate directories synced, similar to Dropbox, using sockets to support file download, index search, and file verification using md5 hashing
 
+# Requirements
+* Python3 (>=3.8)
+* func-timeout==4.3.5
+* humanize==3.10.0
+* tabulate==0.8.9
+* tqdm==4.61.2
+```bash
+pip install -r requirements.txt
+```
+
+
 # Usage
 
 * ``folder1`` and ``folder2`` represent two separate directories on the same or different machine according to the problem statement (see ``problem.pdf`` for more detail). I have included test data in both of them for testing purposes.  
